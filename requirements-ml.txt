@@ -1,0 +1,10 @@
+# ─── Optional ML accelerators ────────────────────────────────────────────────
+# The system degrades gracefully WITHOUT these (vectorized brute-force ANN and
+# lexical/LLM reranking are used as fallbacks). Install for production scale:
+#   pip install -r requirements-ml.txt
+
+# Approximate-nearest-neighbour index (HNSW). Falls back to vectorized NumPy.
+hnswlib==0.8.0
+
+# Cross-encoder reranker backend. Falls back to lexical / LLM reranking.
+sentence-transformers==3.0.1

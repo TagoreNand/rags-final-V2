@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Ops — Agentic Research System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & tokens ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink:       #0a0c0f;
+    --paper:     #0f1318;
+    --panel:     #151a21;
+    --border:    #1e2730;
+    --border-hi: #2d3d4f;
+    --amber:     #e8a24c;
+    --amber-dim: #7a4f1a;
+    --green:     #4cba82;
+    --green-dim: #1a4a32;
+    --red:       #e05c5c;
+    --red-dim:   #4a1a1a;
+    --blue:      #5ca8e0;
+    --muted:     #4a5568;
+    --text:      #c8d4e0;
+    --text-hi:   #eef2f7;
+    --text-lo:   #607080;
+    --mono:      'DM Mono', monospace;
+    --serif:     'Fraunces', Georgia, serif;
+    --radius:    4px;
+    --glow-amber: 0 0 20px rgba(232,162,76,0.15);
+    --glow-green: 0 0 20px rgba(76,186,130,0.12);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+
+  /* ── Scanline overlay ───────────────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  #app {
+    display: grid;
+    grid-template-rows: 48px 1fr;
+    grid-template-columns: 340px 1fr 300px;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: var(--serif);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--amber);
+    letter-spacing: -0.02em;
+    font-style: italic;
+  }
+  .logo span {
+    font-style: normal;
+    font-weight: 300;
+    color: var(--text-lo);
+    font-size: 12px;
+    margin-left: 8px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+
+  .header-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-lo);
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 5px;
+  }
+  .dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.err { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .dot.warn { background: var(--amber); animation: pulse 2s infinite; }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+
+  /* ── Sidebar: input panel ────────────────────────────────────────────── */
+  #sidebar {
+    grid-row: 2;
+    background: var(--paper);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-lo);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-head-icon { color: var(--amber); }
+
+  .task-form {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-lo);
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  textarea {
+    width: 100%;
+    background: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-hi);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 12px;
+    resize: vertical;
+    min-height: 90px;
+    transition: border-color 0.15s;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--amber-dim); }
+  textarea::placeholder { color: var(--muted); }
+
+  .row { display: flex; gap: 10px; }
+
+  input[type=number], select {
+    background: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  input[type=number]:focus, select:focus { border-color: var(--amber-dim); }
+  select option { background: var(--paper); }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .toggle {
+    position: relative;
+    width: 34px; height: 18px;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0;
+    background: var(--border);
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 12px; height: 12px;
+    left: 3px; top: 3px;
+    background: var(--muted);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: var(--amber-dim); }
+  .toggle input:checked + .toggle-slider::before {
+    transform: translateX(16px);
+    background: var(--amber);
+  }
+
+  .btn-run {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--amber-dim);
+    border-radius: var(--radius);
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-run:hover {
+    background: rgba(232,162,76,0.08);
+    border-color: var(--amber);
+    box-shadow: var(--glow-amber);
+  }
+  .btn-run:active { transform: scale(0.98); }
+  .btn-run:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  /* ── Task history list ───────────────────────────────────────────────── */
+  #history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  #history::-webkit-scrollbar { width: 4px; }
+  #history::-webkit-scrollbar-track { background: transparent; }
+  #history::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+  .task-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.12s;
+    border-bottom: 1px solid var(--border);
+  }
+  .task-item:hover { background: rgba(255,255,255,0.02); }
+  .task-item.active {
+    border-left-color: var(--amber);
+    background: rgba(232,162,76,0.05);
+  }
+
+  .task-item-goal {
+    font-size: 12px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+  }
+
+  .task-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--text-lo);
+  }
+
+  .badge {
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 500;
+  }
+  .badge-queued   { background: var(--border); color: var(--muted); }
+  .badge-running  { background: rgba(232,162,76,0.15); color: var(--amber); }
+  .badge-succeeded{ background: var(--green-dim); color: var(--green); }
+  .badge-failed   { background: var(--red-dim); color: var(--red); }
+
+  /* ── Main: result pane ───────────────────────────────────────────────── */
+  #main {
+    grid-row: 2;
+    overflow-y: auto;
+    background: var(--ink);
+    display: flex;
+    flex-direction: column;
+  }
+  #main::-webkit-scrollbar { width: 4px; }
+  #main::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+  .result-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-lo);
+    gap: 12px;
+  }
+  .result-empty-glyph {
+    font-family: var(--serif);
+    font-size: 64px;
+    color: var(--border-hi);
+    line-height: 1;
+  }
+  .result-empty p { font-size: 12px; }
+
+  .result-header {
+    padding: 16px 24px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--ink);
+    z-index: 10;
+  }
+
+  .result-goal {
+    font-family: var(--serif);
+    font-size: 19px;
+    font-weight: 300;
+    color: var(--text-hi);
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  .result-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-lo);
+  }
+
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--amber);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 8px var(--amber);
+  }
+
+  /* ── Step trace ──────────────────────────────────────────────────────── */
+  #steps-area {
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .step-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    animation: fadein 0.3s ease;
+  }
+  @keyframes fadein { from { opacity:0; transform: translateY(4px);} to {opacity:1; transform: none;} }
+
+  .step-icon {
+    width: 24px; height: 24px;
+    border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-icon.running  { background: rgba(232,162,76,0.15); color: var(--amber); animation: pulse 1.5s infinite; }
+  .step-icon.succeeded { background: var(--green-dim); color: var(--green); }
+  .step-icon.failed   { background: var(--red-dim); color: var(--red); }
+  .step-icon.queued   { background: var(--border); color: var(--muted); }
+
+  .step-body { flex: 1; min-width: 0; }
+  .step-header-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .step-agent {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-hi);
+    text-transform: capitalize;
+  }
+  .step-type {
+    font-size: 10px;
+    color: var(--text-lo);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .step-output {
+    font-size: 11px;
+    color: var(--text-lo);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 80px;
+    overflow: hidden;
+    position: relative;
+  }
+  .step-output.expanded { max-height: none; }
+  .step-expand {
+    font-size: 10px;
+    color: var(--amber);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 0;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Report area ─────────────────────────────────────────────────────── */
+  #report-area {
+    padding: 20px 24px 40px;
+    max-width: 780px;
+  }
+
+  .report-content {
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--text);
+  }
+  .report-content h1, .report-content h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    color: var(--text-hi);
+    margin: 1.4em 0 0.5em;
+    line-height: 1.25;
+  }
+  .report-content h1 { font-size: 22px; }
+  .report-content h2 { font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .report-content h3 { font-size: 13px; color: var(--amber); text-transform: uppercase; letter-spacing: 0.08em; margin: 1.2em 0 0.4em; }
+  .report-content p  { margin: 0.6em 0; }
+  .report-content ul, .report-content ol { margin: 0.6em 0 0.6em 1.4em; }
+  .report-content li { margin: 0.3em 0; }
+  .report-content strong { color: var(--text-hi); font-weight: 500; }
+  .report-content code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 0 4px;
+    font-size: 11px;
+    color: var(--blue);
+  }
+  .report-content pre {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 0.8em 0;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .report-content blockquote {
+    border-left: 2px solid var(--amber-dim);
+    margin: 0.8em 0;
+    padding: 0 0 0 14px;
+    color: var(--text-lo);
+  }
+
+  /* Citation highlights */
+  .cite-ref {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    font-size: 9px;
+    background: rgba(92,168,224,0.15);
+    color: var(--blue);
+    border-radius: 2px;
+    border: 1px solid rgba(92,168,224,0.25);
+    cursor: pointer;
+    text-decoration: none;
+    vertical-align: super;
+    margin: 0 1px;
+    font-family: var(--mono);
+    transition: background 0.15s;
+  }
+  .cite-ref:hover { background: rgba(92,168,224,0.3); }
+
+  /* ── Right panel: citations ──────────────────────────────────────────── */
+  #citations-panel {
+    grid-row: 2;
+    background: var(--paper);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #citations-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  #citations-list::-webkit-scrollbar { width: 4px; }
+  #citations-list::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+  .cite-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .cite-item:hover { background: rgba(92,168,224,0.04); }
+  .cite-item.highlight { background: rgba(92,168,224,0.08); border-left: 2px solid var(--blue); }
+
+  .cite-num {
+    font-size: 10px;
+    color: var(--blue);
+    font-weight: 500;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cite-source-badge {
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--border);
+    color: var(--muted);
+  }
+  .cite-source-badge.wikipedia { background: rgba(76,186,130,0.1); color: var(--green); }
+  .cite-source-badge.arxiv     { background: rgba(232,162,76,0.1); color: var(--amber); }
+  .cite-source-badge.brave     { background: rgba(92,168,224,0.1); color: var(--blue); }
+
+  .cite-title {
+    font-size: 11px;
+    color: var(--text);
+    margin-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cite-url {
+    font-size: 10px;
+    color: var(--text-lo);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .cite-url:hover { color: var(--blue); }
+  .cite-snippet {
+    font-size: 10px;
+    color: var(--text-lo);
+    margin-top: 5px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ── Spinner ─────────────────────────────────────────────────────────── */
+  .spinner {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border: 1px solid var(--border-hi);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error toast ─────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.2s;
+    z-index: 1000;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: none; }
+
+  /* ── API key bar ─────────────────────────────────────────────────────── */
+  .api-key-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .api-key-row input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-lo);
+    padding: 10px 16px 4px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">RAG Ops <span>v2 · agentic research</span></div>
+    <div class="header-status">
+      <span id="ollama-status"><span class="dot warn"></span>ollama</span>
+      <span id="redis-status"><span class="dot warn"></span>redis</span>
+      <span id="db-status"><span class="dot warn"></span>db</span>
+    </div>
+  </header>
+
+  <!-- ── Left sidebar ── -->
+  <aside id="sidebar">
+    <div class="panel-head"><span class="panel-head-icon">◈</span> New Research Task</div>
+
+    <div class="task-form">
+      <div>
+        <label>Research Goal</label>
+        <textarea id="goal-input" placeholder="e.g. How do transformer attention mechanisms work and why did they replace RNNs?" rows="4"></textarea>
+      </div>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Max Steps</label>
+          <input type="number" id="max-steps" value="6" min="1" max="20">
+        </div>
+        <div style="flex:1">
+          <label>Sources</label>
+          <select id="sources-select">
+            <option value="">All sources</option>
+            <option value="wikipedia">Wikipedia only</option>
+            <option value="arxiv">arXiv only</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label>API Key (if auth enabled)</label>
+        <div class="api-key-row">
+          <input type="password" id="api-key" placeholder="leave blank if auth is off">
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <label style="margin:0">Allow code execution</label>
+        <label class="toggle">
+          <input type="checkbox" id="code-run">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <button class="btn-run" id="btn-run">▶ Run Research</button>
+    </div>
+
+    <div class="section-title">Recent Tasks</div>
+    <div id="history"></div>
+  </aside>
+
+  <!-- ── Main result pane ── -->
+  <main id="main">
+    <div class="result-empty" id="empty-state">
+      <div class="result-empty-glyph">⊙</div>
+      <p>Submit a research goal to begin.</p>
+      <p style="font-size:10px;margin-top:4px">Results will appear here in real time.</p>
+    </div>
+
+    <div id="result-view" style="display:none">
+      <div class="result-header">
+        <div class="result-goal" id="result-goal"></div>
+        <div class="result-meta">
+          <span id="result-badge" class="badge"></span>
+          <span id="result-id" style="font-size:10px;color:var(--text-lo)"></span>
+          <span id="result-time" style="font-size:10px;color:var(--text-lo)"></span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      </div>
+
+      <div id="steps-area"></div>
+      <div id="report-area"><div class="report-content" id="report-content"></div></div>
+    </div>
+  </main>
+
+  <!-- ── Right citations panel ── -->
+  <aside id="citations-panel">
+    <div class="panel-head"><span class="panel-head-icon">◇</span> Citations</div>
+    <div id="citations-list">
+      <div style="padding:20px 14px;color:var(--text-lo);font-size:11px">
+        Citations will appear here once a task completes.
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ── State ───────────────────────────────────────────────────────────────── */
+const state = {
+  tasks: [],        // local task list cache
+  activeId: null,   // currently viewed task ID
+  polling: null,    // setInterval handle
+  apiKey: '',
+};
+
+/* ── DOM refs ─────────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const goalInput   = $('goal-input');
+const maxSteps    = $('max-steps');
+const sourceSel   = $('sources-select');
+const codeRun     = $('code-run');
+const apiKeyInput = $('api-key');
+const btnRun      = $('btn-run');
+const historyEl   = $('history');
+const emptyState  = $('empty-state');
+const resultView  = $('result-view');
+const stepsArea   = $('steps-area');
+const reportEl    = $('report-content');
+const reportArea  = $('report-area');
+const citeList    = $('citations-list');
+const toast       = $('toast');
+
+/* ── API helpers ─────────────────────────────────────────────────────────── */
+function headers() {
+  const h = { 'Content-Type': 'application/json' };
+  const k = apiKeyInput.value.trim();
+  if (k) h['X-API-Key'] = k;
+  return h;
+}
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, { headers: headers(), ...opts });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`${res.status}: ${t.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+/* ── Health polling ──────────────────────────────────────────────────────── */
+async function checkHealth() {
+  try {
+    const h = await fetch('/health').then(r => r.json());
+    setDot('ollama-status', 'ollama', h.ollama_ok);
+    setDot('redis-status',  'redis',  h.redis_ok);
+    setDot('db-status',     'db',     h.db_ok);
+  } catch(e) {
+    ['ollama-status','redis-status','db-status'].forEach(id => {
+      $(id).innerHTML = `<span class="dot err"></span>${id.split('-')[0]}`;
+    });
+  }
+}
+function setDot(id, label, ok) {
+  $(id).innerHTML = `<span class="dot ${ok ? 'ok' : 'err'}"></span>${label}`;
+}
+checkHealth();
+setInterval(checkHealth, 15000);
+
+/* ── Task creation ───────────────────────────────────────────────────────── */
+btnRun.addEventListener('click', async () => {
+  const goal = goalInput.value.trim();
+  if (!goal) { showToast('Please enter a research goal.'); return; }
+
+  btnRun.disabled = true;
+  btnRun.textContent = '◌ Submitting…';
+
+  const body = {
+    goal,
+    max_steps: parseInt(maxSteps.value) || 6,
+    enable_code_run: codeRun.checked,
+    sources: sourceSel.value ? [sourceSel.value] : [],
+  };
+
+  try {
+    const task = await apiFetch('/v1/tasks', { method: 'POST', body: JSON.stringify(body) });
+    addToHistory(task);
+    selectTask(task.task_id);
+    goalInput.value = '';
+  } catch(e) {
+    showToast(e.message);
+  } finally {
+    btnRun.disabled = false;
+    btnRun.textContent = '▶ Run Research';
+  }
+});
+
+/* ── Task polling ────────────────────────────────────────────────────────── */
+function selectTask(taskId) {
+  state.activeId = taskId;
+  clearInterval(state.polling);
+  renderActiveTask(null);  // clear + show skeleton
+  pollTask(taskId);
+  state.polling = setInterval(() => pollTask(taskId), 1500);
+
+  // Highlight in history
+  document.querySelectorAll('.task-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === taskId);
+  });
+}
+
+async function pollTask(taskId) {
+  try {
+    const task = await apiFetch(`/v1/tasks/${taskId}`);
+    updateHistory(task);
+    if (state.activeId === taskId) renderActiveTask(task);
+    if (task.status === 'succeeded' || task.status === 'failed') {
+      clearInterval(state.polling);
+    }
+  } catch(e) {
+    clearInterval(state.polling);
+  }
+}
+
+/* ── Rendering ───────────────────────────────────────────────────────────── */
+const STEP_ICONS = {
+  supervisor: '◎', researcher: '⊕', rager: '◈', analyst: '≋',
+  coder: '⟨⟩', reflector: '✓',
+};
+
+const STEP_PROGRESS = {
+  web_research: 20, rag_index: 50, synthesize_report: 70, code_demo: 85, finalize: 100,
+};
+
+function renderActiveTask(task) {
+  if (!task) {
+    emptyState.style.display = 'none';
+    resultView.style.display = 'block';
+    stepsArea.innerHTML = '';
+    reportEl.innerHTML = '';
+    citeList.innerHTML = '';
+    $('result-goal').textContent = '…';
+    $('progress-fill').style.width = '0%';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  resultView.style.display = 'block';
+
+  // Header
+  $('result-goal').textContent = task.goal;
+  $('result-badge').className = `badge badge-${task.status}`;
+  $('result-badge').textContent = task.status;
+  $('result-id').textContent = task.task_id.slice(0, 8) + '…';
+  $('result-time').textContent = reltime(task.updated_at);
+
+  // Progress bar
+  let maxProg = 5;
+  if (task.steps && task.steps.length) {
+    const lastStep = task.steps[task.steps.length - 1];
+    maxProg = STEP_PROGRESS[lastStep.step_type] || maxProg;
+  }
+  if (task.status === 'succeeded') maxProg = 100;
+  if (task.status === 'failed') maxProg = 100;
+  $('progress-fill').style.width = maxProg + '%';
+  $('progress-fill').style.background = task.status === 'failed' ? 'var(--red)' : 'var(--amber)';
+
+  // Steps
+  const existingIds = new Set([...stepsArea.querySelectorAll('.step-row')].map(el => el.dataset.id));
+  (task.steps || []).forEach(step => {
+    if (existingIds.has(step.step_id)) {
+      // Update existing step status
+      const row = stepsArea.querySelector(`[data-id="${step.step_id}"]`);
+      if (row) {
+        const icon = row.querySelector('.step-icon');
+        icon.className = `step-icon ${step.status}`;
+        icon.textContent = step.status === 'running' ? '◌' : step.status === 'succeeded' ? STEP_ICONS[step.agent] || '✓' : '✗';
+        const out = row.querySelector('.step-output');
+        if (out && step.output) out.textContent = step.output.slice(0, 300);
+      }
+      return;
+    }
+    // New step
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.dataset.id = step.step_id;
+
+    const iconChar = step.status === 'running' ? '◌' : step.status === 'succeeded' ? (STEP_ICONS[step.agent] || '✓') : '✗';
+    row.innerHTML = `
+      <div class="step-icon ${step.status}">${iconChar}</div>
+      <div class="step-body">
+        <div class="step-header-row">
+          <span class="step-agent">${step.agent}</span>
+          <span class="step-type">${step.step_type.replace(/_/g,' ')}</span>
+        </div>
+        ${step.output ? `<div class="step-output">${escHtml(step.output.slice(0,300))}</div>
+        <button class="step-expand" onclick="toggleOutput(this)">+ expand</button>` : ''}
+        ${step.error ? `<div class="step-output" style="color:var(--red)">${escHtml(step.error)}</div>` : ''}
+      </div>
+    `;
+    stepsArea.appendChild(row);
+  });
+
+  // Report
+  if (task.status === 'succeeded' && task.result) {
+    reportEl.innerHTML = renderMarkdown(task.result);
+  } else if (task.status === 'failed' && task.error) {
+    reportEl.innerHTML = `<div style="color:var(--red);padding:16px 0">${escHtml(task.error)}</div>`;
+  }
+
+  // Citations
+  if (task.citations && task.citations.length) {
+    citeList.innerHTML = '';
+    task.citations.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'cite-item';
+      item.dataset.num = c.num;
+      item.innerHTML = `
+        <div class="cite-num">
+          [${c.num}]
+          <span class="cite-source-badge ${c.source}">${c.source}</span>
+        </div>
+        <div class="cite-title">${escHtml(c.title)}</div>
+        <a class="cite-url" href="${escHtml(c.url)}" target="_blank" rel="noopener">${escHtml(c.url)}</a>
+        <div class="cite-snippet">${escHtml(c.snippet)}</div>
+      `;
+      item.addEventListener('click', () => highlightCite(c.num));
+      citeList.appendChild(item);
+    });
+  }
+}
+
+function highlightCite(num) {
+  document.querySelectorAll('.cite-item').forEach(el =>
+    el.classList.toggle('highlight', parseInt(el.dataset.num) === num)
+  );
+  const ref = document.querySelector(`.cite-ref[data-num="${num}"]`);
+  if (ref) ref.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function toggleOutput(btn) {
+  const out = btn.previousElementSibling;
+  out.classList.toggle('expanded');
+  btn.textContent = out.classList.contains('expanded') ? '− collapse' : '+ expand';
+}
+
+/* ── History ─────────────────────────────────────────────────────────────── */
+function addToHistory(task) {
+  state.tasks.unshift(task);
+  renderHistory();
+}
+function updateHistory(task) {
+  const idx = state.tasks.findIndex(t => t.task_id === task.task_id);
+  if (idx >= 0) state.tasks[idx] = task;
+  else state.tasks.unshift(task);
+  renderHistory();
+}
+function renderHistory() {
+  historyEl.innerHTML = '';
+  state.tasks.forEach(task => {
+    const item = document.createElement('div');
+    item.className = `task-item${task.task_id === state.activeId ? ' active' : ''}`;
+    item.dataset.id = task.task_id;
+    item.innerHTML = `
+      <div class="task-item-goal">${escHtml(task.goal)}</div>
+      <div class="task-item-meta">
+        <span class="badge badge-${task.status}">${task.status}</span>
+        <span>${reltime(task.updated_at)}</span>
+      </div>
+    `;
+    item.addEventListener('click', () => selectTask(task.task_id));
+    historyEl.appendChild(item);
+  });
+}
+
+/* Load recent tasks on startup */
+async function loadRecentTasks() {
+  try {
+    const data = await apiFetch('/v1/tasks?limit=10');
+    state.tasks = data.tasks || [];
+    renderHistory();
+  } catch(e) { /* auth off or no tasks yet */ }
+}
+loadRecentTasks();
+
+/* ── Markdown renderer (minimal) ─────────────────────────────────────────── */
+function renderMarkdown(md) {
+  if (!md) return '';
+  let html = escHtml(md);
+
+  // Code blocks
+  html = html.replace(/```[\s\S]*?```/g, match => {
+    const code = match.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
+    return `<pre>${code}</pre>`;
+  });
+
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm,  '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm,   '<h1>$1</h1>');
+
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener" style="color:var(--blue)">$1</a>');
+
+  // Citation refs [N]
+  html = html.replace(/\[(\d+)\]/g,
+    (_, n) => `<a class="cite-ref" data-num="${n}" onclick="highlightCite(${n})" title="Source ${n}">${n}</a>`);
+
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Lists
+  html = html.replace(/^\* (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/^- (.+)$/gm,  '<li>$1</li>');
+  html = html.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n+/g, '</p><p>');
+  html = `<p>${html}</p>`;
+
+  // Cleanup empty paras
+  html = html.replace(/<p>\s*(<h[1-3]>)/g, '$1');
+  html = html.replace(/(<\/h[1-3]>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+  html = html.replace(/<p>\s*<\/p>/g, '');
+  html = html.replace(/<p>(<li>[\s\S]+?<\/li>)<\/p>/g, '<ul>$1</ul>');
+  html = html.replace(/<p>(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+
+  return html;
+}
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function reltime(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 60)  return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  return `${Math.round(diff/3600)}h ago`;
+}
+
+function showToast(msg, ms = 4000) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), ms);
+}
+
+/* Keyboard shortcut: Ctrl+Enter to submit */
+goalInput.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') btnRun.click();
+});
+</script>
+</body>
+</html>

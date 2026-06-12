@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN groupadd -r worker && useradd -r -g worker worker
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/data && chown -R worker:worker /app
+
+USER worker
+
+CMD ["python", "-m", "backend.workers.rq_worker"]

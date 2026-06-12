@@ -1,0 +1,95 @@
+---
+# ── Worker Deployment ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-worker
+  namespace: rag-ops
+  labels:
+    app: rag-worker
+    component: worker
+spec:
+  replicas: 2       # scale independently from the API
+  selector:
+    matchLabels:
+      app: rag-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: rag-worker
+    spec:
+      serviceAccountName: rag-ops-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 120   # let running jobs finish
+      containers:
+        - name: worker
+          image: yourregistry/rag-ops-worker:latest  # replace with your registry
+          imagePullPolicy: Always
+          command: ["python", "-m", "backend.workers.rq_worker"]
+          envFrom:
+            - configMapRef:
+                name: rag-ops-config
+            - secretRef:
+                name: rag-ops-secrets
+          env:
+            - name: DATABASE_URL
+              value: "sqlite:////app/data/rag.db"
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 500m
+            limits:
+              memory: 3Gi
+              cpu: 2000m
+          # No readinessProbe on the worker — it's not a server.
+          # Liveness: check RQ heartbeat via redis-cli
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - |
+                  from redis import Redis
+                  import os
+                  r = Redis.from_url(os.environ['REDIS_URL'], socket_connect_timeout=3)
+                  r.ping()
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: rag-data-pvc
+
+---
+# ── Worker HPA (scale on queue depth via KEDA — optional) ────────────────────
+# If KEDA is installed, replace the standard HPA above with this ScaledObject.
+# kubectl apply -f https://github.com/kedacore/keda/releases/latest/download/keda.yaml
+#
+# apiVersion: keda.sh/v1alpha1
+# kind: ScaledObject
+# metadata:
+#   name: rag-worker-scaler
+#   namespace: rag-ops
+# spec:
+#   scaleTargetRef:
+#     name: rag-worker
+#   minReplicaCount: 1
+#   maxReplicaCount: 10
+#   triggers:
+#     - type: redis
+#       metadata:
+#         address: redis-svc.rag-ops.svc.cluster.local:6379
+#         listName: rq:queue:rag-ops
+#         listLength: "5"   # scale up when queue depth > 5

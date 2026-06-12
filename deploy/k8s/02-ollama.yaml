@@ -1,0 +1,107 @@
+---
+# ── Ollama PVC ────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: rag-ops
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 30Gi   # enough for llama3 + nomic-embed-text
+
+---
+# ── Ollama StatefulSet ────────────────────────────────────────────────────────
+# Uses StatefulSet so the PVC stays stable across restarts.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ollama
+  namespace: rag-ops
+spec:
+  serviceName: ollama-svc
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # Uncomment for GPU nodes:
+      # nodeSelector:
+      #   accelerator: nvidia-tesla-t4
+      # tolerations:
+      #   - key: nvidia.com/gpu
+      #     operator: Exists
+      #     effect: NoSchedule
+      initContainers:
+        - name: pull-models
+          image: ollama/ollama:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ollama serve &
+              sleep 5
+              ollama pull llama3 || true
+              ollama pull nomic-embed-text || true
+              pkill ollama
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: 2Gi
+              cpu: 1
+            limits:
+              memory: 16Gi
+              cpu: 4
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: 4Gi
+              cpu: 2
+            limits:
+              memory: 16Gi
+              cpu: 8
+              # nvidia.com/gpu: "1"   # uncomment for GPU
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+
+---
+# ── Ollama Service ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-svc
+  namespace: rag-ops
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434

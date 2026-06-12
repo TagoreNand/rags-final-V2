@@ -1,0 +1,166 @@
+---
+# ── Shared data PVC (SQLite) ──────────────────────────────────────────────────
+# NOTE: For multi-replica API, replace SQLite with Postgres and remove this PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rag-data-pvc
+  namespace: rag-ops
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# ── API Deployment ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: rag-ops
+  labels:
+    app: rag-api
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: rag-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: rag-ops-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: yourregistry/rag-ops-api:latest   # replace with your registry
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: rag-ops-config
+            - secretRef:
+                name: rag-ops-secrets
+          env:
+            - name: DATABASE_URL
+              value: "sqlite:////app/data/rag.db"
+          volumeMounts:
+            - name: app-data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]   # drain in-flight requests
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: rag-data-pvc
+
+---
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-api-hpa
+  namespace: rag-ops
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ── API Service ───────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api-svc
+  namespace: rag-ops
+spec:
+  selector:
+    app: rag-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+
+---
+# ── Ingress ───────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-api-ingress
+  namespace: rag-ops
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # if using cert-manager
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - rag-ops.yourdomain.com
+      secretName: rag-ops-tls
+  rules:
+    - host: rag-ops.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-api-svc
+                port:
+                  number: 80

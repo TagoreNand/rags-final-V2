@@ -1,0 +1,57 @@
+---
+# ── Namespace ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rag-ops
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    environment: production
+
+---
+# ── ConfigMap (non-secret runtime config) ─────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-ops-config
+  namespace: rag-ops
+data:
+  OLLAMA_BASE_URL:          "http://ollama-svc:11434"
+  REDIS_URL:                "redis://redis-svc:6379/0"
+  LLM_MODEL:                "llama3"
+  EMBED_MODEL:              "nomic-embed-text"
+  RAG_TOP_K:                "5"
+  RAG_CHUNK_SIZE:           "1200"
+  RAG_CHUNK_OVERLAP:        "200"
+  RAG_MAX_SOURCES:          "6"
+  MAX_STEPS:                "8"
+  ARXIV_ENABLED:            "true"
+  MAX_WEB_FETCH_CHARS:      "25000"
+  HTTP_TIMEOUT_S:           "20"
+  HTTP_MAX_RETRIES:         "3"
+  ENABLE_CODE_RUN:          "false"
+  CODE_SANDBOX:             "docker"
+  MAX_CODE_RUN_SECONDS:     "20"
+  WORKER_CONCURRENCY:       "4"
+  TASK_RESULT_TTL:          "86400"
+  JOB_TIMEOUT:              "300"
+  OTEL_ENABLED:             "false"
+  OTEL_SERVICE_NAME:        "rag-ops"
+  LOG_LEVEL:                "INFO"
+  LOG_FORMAT:               "json"
+
+---
+# ── Secret (mount from external secret manager in prod, e.g. ESO / Vault) ─────
+# IMPORTANT: Replace placeholder values before deploying.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-ops-secrets
+  namespace: rag-ops
+type: Opaque
+stringData:
+  API_KEYS:          "CHANGE_ME_key1,CHANGE_ME_key2"
+  JWT_SECRET:        "CHANGE_ME_jwt_secret_at_least_32_chars"
+  BRAVE_SEARCH_KEY:  ""
+  NEWS_API_KEY:      ""
+  SERPAPI_KEY:       ""

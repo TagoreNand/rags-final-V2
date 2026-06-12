@@ -1,0 +1,107 @@
+---
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-ops-sa
+  namespace: rag-ops
+  annotations: {}
+  # If using Workload Identity (GKE / EKS / AKS), add the provider annotation:
+  # iam.gke.io/service-account: rag-ops@your-project.iam.gserviceaccount.com
+
+---
+# ── NetworkPolicy — default deny, allow only needed traffic ──────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: rag-ops
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+---
+# Allow API pods: inbound from ingress + outbound to Redis/Ollama + DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api
+  namespace: rag-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - port: 8000
+  egress:
+    - ports: [{port: 6379}]   # Redis
+    - ports: [{port: 11434}]  # Ollama
+    - ports: [{port: 53}, {port: 53, protocol: UDP}]   # DNS
+    - ports: [{port: 443}, {port: 80}]                 # Wikipedia / arXiv / Brave
+
+---
+# Allow worker pods: outbound to Redis/Ollama/web
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker
+  namespace: rag-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-worker
+  policyTypes: [Ingress, Egress]
+  ingress: []        # workers accept no inbound
+  egress:
+    - ports: [{port: 6379}]
+    - ports: [{port: 11434}]
+    - ports: [{port: 53}, {port: 53, protocol: UDP}]
+    - ports: [{port: 443}, {port: 80}]
+
+---
+# Allow Redis: only accept from api + worker pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-redis
+  namespace: rag-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: rag-api
+        - podSelector:
+            matchLabels:
+              app: rag-worker
+      ports:
+        - port: 6379
+
+---
+# Allow Ollama: only accept from api + worker pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ollama
+  namespace: rag-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: ollama
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: rag-api
+        - podSelector:
+            matchLabels:
+              app: rag-worker
+      ports:
+        - port: 11434
